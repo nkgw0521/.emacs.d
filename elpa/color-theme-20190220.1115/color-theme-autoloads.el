@@ -1,10 +1,12 @@
 ;;; color-theme-autoloads.el --- automatically extracted autoloads
 ;;
 ;;; Code:
-(add-to-list 'load-path (directory-file-name (or (file-name-directory #$) (car load-path))))
+
+(add-to-list 'load-path (directory-file-name
+                         (or (file-name-directory #$) (car load-path))))
+
 
-;;;### (autoloads nil "color-theme" "color-theme.el" (23564 31044
-;;;;;;  343726 400000))
+;;;### (autoloads nil "color-theme" "color-theme.el" (0 0 0 0))
 ;;; Generated autoloads from color-theme.el
 
 (autoload 'color-theme-select "color-theme" "\
@@ -137,10 +139,11 @@ Initialize the color theme package by loading color-theme-libraries.
 
 \(fn)" t nil)
 
+(if (fboundp 'register-definition-prefixes) (register-definition-prefixes "color-theme" '("define-color-theme" "color-theme")))
+
 ;;;***
 
-;;;### (autoloads nil nil ("color-theme-pkg.el") (23564 31044 499971
-;;;;;;  300000))
+;;;### (autoloads nil nil ("color-theme-pkg.el") (0 0 0 0))
 
 ;;;***
 
@@ -148,5 +151,6 @@ Initialize the color theme package by loading color-theme-libraries.
 ;; version-control: never
 ;; no-byte-compile: t
 ;; no-update-autoloads: t
+;; coding: utf-8
 ;; End:
 ;;; color-theme-autoloads.el ends here
