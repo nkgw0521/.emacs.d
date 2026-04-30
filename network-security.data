@@ -1,3 +1,7 @@
+;;;; -*- mode: lisp-data -*-
 (
+ (:id "sha1:1dd1af4a16d2ed2802679be2de23161d1f79b3c7" :fingerprints ("sha1:be:fe:43:43:f2:c8:55:44:ac:9d:71:e8:72:0b:57:9a:9f:b0:6e:f4" "sha1:b2:80:50:87:ff:e8:92:50:4b:61:19:4c:78:e3:c0:f1:2b:9e:03:7b") :host "elpa.nongnu.org:443" :conditions (:same-cert))
+ (:id "sha1:6d4eb958390599243ba9f5035cb671fa8dd6a93a" :fingerprints ("sha1:25:d0:e9:c0:b1:18:c3:97:4d:7b:e3:b1:92:20:2b:d6:68:c8:39:a7" "sha1:23:a0:37:66:4a:f2:3a:f2:d6:fe:5a:f9:45:d7:c0:7e:21:1d:bb:66") :host "elpa.gnu.org:443" :conditions (:same-cert))
+ (:id "sha1:85b31c268009209a8d3c5387033b219264f7e62b" :fingerprints ("sha1:40:14:05:bb:f6:e6:b1:05:80:dc:63:dd:1f:b1:dc:8c:87:19:57:8b" "sha1:fe:a5:7b:e6:ef:30:a8:b6:f2:02:cb:c0:a9:ad:4b:84:21:e8:10:0a") :host "melpa.org:443" :conditions (:same-cert))
  (:id "sha1:85457c729378cc93c732b6a3941c8e4f9c2e60f3" :fingerprint "sha1:ab:a6:d7:6a:b3:d3:63:fa:19:0d:65:41:60:23:6e:ef:d3:2a:46:dc" :host "marmalade-repo.org:443" :conditions (:expired :unknown-ca :invalid))
 )
