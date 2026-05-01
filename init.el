@@ -225,6 +225,15 @@
 ;;; ============================================================
 ;; 8. C言語 / 組込み開発向け設定
 ;;; ============================================================
+
+(defun my-c-plain-newline ()
+  "C/C++用: 自動整形を通さず、改行文字だけを挿入する。"
+  (interactive)
+  (let ((electric-indent-inhibit t)
+        (post-self-insert-hook nil)
+        (inhibit-modification-hooks t))
+    (insert "\n")))
+
 (leaf cc-mode
   :hook
   ;; c-mode と c-ts-mode 両対応
@@ -240,19 +249,46 @@
      (setq-local tab-stop-list
                  '(4 8 12 16 20 24 28 32 36 40 44 48 52 56 60
                    64 68 72 76 80 84 88 92 96 100 104 108 112 116 120))
+
      ;; TAB は C/C++ バッファではタブ文字を入力する。
      (local-set-key (kbd "TAB") #'self-insert-command)
-     ;; 改行時の自動インデントで表形式テーブルが崩れるのを抑制。
+
+     ;; RET は C/C++ バッファでは「改行文字だけ」を入力する。
+     ;; newline / electric-indent-just-newline / c-context-line-break は使わない。
+     (local-set-key (kbd "RET") #'my-c-plain-newline)
+     (local-set-key (kbd "C-m") #'my-c-plain-newline)
+
+     ;; 改行・括弧・構文cleanupによる自動整形を止める。
+     (setq-local electric-indent-inhibit t)
      (electric-indent-local-mode -1)
+     (when (fboundp 'electric-pair-local-mode)
+       (electric-pair-local-mode -1))
+     (setq-local post-self-insert-hook nil)
+     (setq-local c-syntactic-indentation nil)
+     (setq-local c-cleanup-list nil)
+     (setq-local c-auto-newline nil)
+     (setq-local c-electric-flag nil)
+
      ;; switch の case をインデントしない。
      (c-set-offset 'case-label 0)
+
      ;; 構造体/配列初期化子の深い縦揃えを抑制。
      (c-set-offset 'arglist-cont '+)
      (c-set-offset 'arglist-cont-nonempty '+)
      (c-set-offset 'brace-list-intro '+)
      (c-set-offset 'brace-list-entry 0)
+
      ;; 保存時に自動フォーマット (clang-format 使用時はコメント解除)
      ;; (add-hook 'before-save-hook #'clang-format-buffer nil t)
+     (local-set-key
+      (kbd "TAB")
+      (lambda ()
+        (interactive)
+        (if (looking-at "^[ \t]*$")
+            ;; 行頭 or 空行 → インデント
+            (c-indent-line)
+          ;; それ以外 → タブ文字
+          (insert "\t"))))
      )))
 
 ;; --- whitespace: タブ・末尾空白・全角スペースを可視化 ---
