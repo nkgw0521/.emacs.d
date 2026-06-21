@@ -21,21 +21,22 @@
 (package-initialize)
 
 ;;; ------------------------------------------------------------
-;;; 必要パッケージの自動インストール（ggtags）
+;;; 必要パッケージの自動インストール
 ;;; ------------------------------------------------------------
 
-(defvar my-required-packages '(ggtags))
+(defvar my-required-packages '(ggtags color-moccur))
 
 (defun my-install-missing-packages ()
   (dolist (pkg my-required-packages)
     (unless (package-installed-p pkg)
       (package-refresh-contents)
       (package-install pkg))))
-
 (my-install-missing-packages)
 
-(setq gtags-global-command "global")
 (require 'ggtags)
+
+(require 'color-moccur)
+(setq moccur-split-word t)
 
 ;;; ------------------------------------------------------------
 ;;; PATH（MSYS2 UCRT64 の LSP サーバーを Emacs に認識させる）
@@ -45,7 +46,7 @@
 (setenv "PATH" (concat "C:/msys64/ucrt64/bin;" (getenv "PATH")))
 
 ;;; ------------------------------------------------------------
-;;; キーバインド（旧設定を最大限維持）
+;;; キーバインド
 ;;; ------------------------------------------------------------
 
 (when (eq system-type 'windows-nt)
@@ -103,7 +104,7 @@
 (load-theme 'wombat t)
 
 ;;; ------------------------------------------------------------
-;;; whitespace（必要最低限）
+;;; whitespace
 ;;; ------------------------------------------------------------
 
 (require 'whitespace)
@@ -111,7 +112,7 @@
 (global-whitespace-mode 1)
 
 ;;; ------------------------------------------------------------
-;;; タブ設定（全言語共通）
+;;; タブ設定
 ;;; ------------------------------------------------------------
 
 (setq-default tab-width 4)
@@ -120,13 +121,8 @@
 (defun my-tab-setup ()
   (setq tab-width 4)
   (setq indent-tabs-mode t))
-
 (add-hook 'prog-mode-hook #'my-tab-setup)
 (add-hook 'text-mode-hook #'my-tab-setup)
-
-;;; ------------------------------------------------------------
-;;; C 言語専用：インデント幅も 4 に統一
-;;; ------------------------------------------------------------
 
 (add-hook 'c-mode-common-hook
           (lambda ()
@@ -135,17 +131,15 @@
             (setq indent-tabs-mode t)))
 
 ;;; ------------------------------------------------------------
-;;; project.el の誤認を防ぐ（Makefile でルート判定）
+;;; project.el の誤認防止
 ;;; ------------------------------------------------------------
 
 (defun my-project-try-root (dir)
   (let ((root (locate-dominating-file dir "Makefile")))
     (when root
       (cons 'my-project root))))
-
 (cl-defmethod project-root ((project (head my-project)))
   (cdr project))
-
 (add-hook 'project-find-functions #'my-project-try-root)
 
 ;;; ------------------------------------------------------------
@@ -157,11 +151,10 @@
 (add-to-list 'xref-backend-functions #'xref-gtags-backend)
 
 ;;; ------------------------------------------------------------
-;;; ★ symbol を確実に取得する関数
+;;; symbol を確実に取得
 ;;; ------------------------------------------------------------
 
 (defun my-symbol-at-point ()
-  "カーソル位置のシンボルを確実に取得する。"
   (let ((sym (thing-at-point 'symbol t)))
     (when (and (not sym)
                (looking-back "[A-Za-z0-9_]" 1))
@@ -171,13 +164,11 @@
     sym))
 
 ;;; ------------------------------------------------------------
-;;; ★ override-map（最強ジャンプキー）
+;;; override-map（C-o / M-t / M-r）
 ;;; ------------------------------------------------------------
 
-(defvar my-override-map (make-sparse-keymap)
-  "Keymap that overrides all major/minor modes.")
+(defvar my-override-map (make-sparse-keymap))
 
-;; C-o（GTAGS → xref → LSP）
 (define-key my-override-map (kbd "C-o")
   (lambda ()
     (interactive)
@@ -187,20 +178,17 @@
      (ignore-errors (call-interactively #'eglot-find-declaration))
      (message "定義が見つかりませんでした"))))
 
-;; M-t（xref-find-definitions）
 (define-key my-override-map (kbd "M-t")
   (lambda () (interactive) (call-interactively #'xref-find-definitions)))
 
-;; M-r（xref-find-references）
 (define-key my-override-map (kbd "M-r")
   (lambda () (interactive) (call-interactively #'xref-find-references)))
 
 ;;; ------------------------------------------------------------
-;;; ★ M-s：Windows で確実に動く ripgrep 検索
+;;; ripgrep（M-s）
 ;;; ------------------------------------------------------------
 
 (defun my-ripgrep-search ()
-  "プロジェクトルートで ripgrep 検索を実行する（Windows 安定版）。"
   (interactive)
   (let* ((proj (project-current))
          (root (if proj (project-root proj) default-directory))
@@ -211,8 +199,6 @@
       (setq pattern sym))
     (unless pattern
       (user-error "検索語が空です"))
-
-    ;; ★ ripgrep を root で確実に実行
     (compilation-start
      (format "rg -n --no-heading --color never --glob \"*\" -- %s \"%s\""
              (shell-quote-argument pattern)
@@ -223,7 +209,6 @@
 (define-key my-override-map (kbd "M-s") #'my-ripgrep-search)
 (define-key my-override-map (kbd "C-c p") #'my-ripgrep-search)
 
-;; C-c f（project-find-file）
 (define-key my-override-map (kbd "C-c f")
   (lambda () (interactive) (call-interactively #'project-find-file)))
 
@@ -234,17 +219,15 @@
   "Force override keymap."
   :global t
   :lighter " OVR")
-
 (my-override-mode 1)
 
 ;;; ------------------------------------------------------------
-;;; ★ GTAGS の完全自動化（対話式 + incremental）
+;;; GTAGS 自動更新
 ;;; ------------------------------------------------------------
 
 (defun my-update-gtags ()
-  "GTAGS が無い/壊れているときは対話式でルートを聞く。"
   (when (and (project-current)
-             (executable-find "gtags"))
+             (executable-find "global"))
     (let* ((root (project-root (project-current)))
            (gtags (expand-file-name "GTAGS" root)))
       (cond
@@ -253,12 +236,11 @@
        ((= (nth 7 (file-attributes gtags)) 0)
         (call-interactively #'ggtags-create-tags))
        (t
-        (start-process "gtags-update" nil "gtags" "--incremental"))))))
-
+        (start-process "gtags-update" nil "global" "--incremental"))))))
 (add-hook 'after-save-hook #'my-update-gtags)
 
 ;;; ------------------------------------------------------------
-;;; Eglot（LSP）設定
+;;; Eglot（LSP）
 ;;; ------------------------------------------------------------
 
 (require 'eglot)
@@ -283,14 +265,10 @@
              '((perl-mode cperl-mode)
                . ("perl-language-server")))
 
-;;; ------------------------------------------------------------
-;;; 保存時に自動フォーマット
-;;; ------------------------------------------------------------
-
 (add-hook 'before-save-hook #'eglot-format-buffer)
 
 ;;; ------------------------------------------------------------
-;;; minibuffer で IME を切る（Windows 日本語向け）
+;;; minibuffer で IME を切る（Windows）
 ;;; ------------------------------------------------------------
 
 (when (eq system-type 'windows-nt)
