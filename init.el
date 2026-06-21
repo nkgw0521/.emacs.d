@@ -21,6 +21,23 @@
 (package-initialize)
 
 ;;; ------------------------------------------------------------
+;;; 必要パッケージの自動インストール（ggtags）
+;;; ------------------------------------------------------------
+
+(defvar my-required-packages '(ggtags))
+
+(defun my-install-missing-packages ()
+  (dolist (pkg my-required-packages)
+    (unless (package-installed-p pkg)
+      (package-refresh-contents)
+      (package-install pkg))))
+
+(my-install-missing-packages)
+
+(setq gtags-global-command "global")
+(require 'ggtags)
+
+;;; ------------------------------------------------------------
 ;;; PATH（MSYS2 UCRT64 の LSP サーバーを Emacs に認識させる）
 ;;; ------------------------------------------------------------
 
@@ -140,7 +157,21 @@
 (add-to-list 'xref-backend-functions #'xref-gtags-backend)
 
 ;;; ------------------------------------------------------------
-;;; ★ ジャンプキーをすべて最強の override-map に入れる
+;;; ★ symbol を確実に取得する関数
+;;; ------------------------------------------------------------
+
+(defun my-symbol-at-point ()
+  "カーソル位置のシンボルを確実に取得する。"
+  (let ((sym (thing-at-point 'symbol t)))
+    (when (and (not sym)
+               (looking-back "[A-Za-z0-9_]" 1))
+      (save-excursion
+        (backward-char 1)
+        (setq sym (thing-at-point 'symbol t))))
+    sym))
+
+;;; ------------------------------------------------------------
+;;; ★ override-map（最強ジャンプキー）
 ;;; ------------------------------------------------------------
 
 (defvar my-override-map (make-sparse-keymap)
@@ -158,33 +189,43 @@
 
 ;; M-t（xref-find-definitions）
 (define-key my-override-map (kbd "M-t")
-  (lambda ()
-    (interactive)
-    (call-interactively #'xref-find-definitions)))
+  (lambda () (interactive) (call-interactively #'xref-find-definitions)))
 
 ;; M-r（xref-find-references）
 (define-key my-override-map (kbd "M-r")
-  (lambda ()
-    (interactive)
-    (call-interactively #'xref-find-references)))
+  (lambda () (interactive) (call-interactively #'xref-find-references)))
 
-;; M-s（project-find-regexp）
-(define-key my-override-map (kbd "M-s")
-  (lambda ()
-    (interactive)
-    (call-interactively #'project-find-regexp)))
+;;; ------------------------------------------------------------
+;;; ★ M-s：Windows で確実に動く ripgrep 検索
+;;; ------------------------------------------------------------
 
-;; C-c p（project-find-regexp）
-(define-key my-override-map (kbd "C-c p")
-  (lambda ()
-    (interactive)
-    (call-interactively #'project-find-regexp)))
+(defun my-ripgrep-search ()
+  "プロジェクトルートで ripgrep 検索を実行する（Windows 安定版）。"
+  (interactive)
+  (let* ((proj (project-current))
+         (root (if proj (project-root proj) default-directory))
+         (sym (my-symbol-at-point))
+         (pattern (read-string
+                   (format "Search (rg) [%s]: " (or sym "")))))
+    (when (string-empty-p pattern)
+      (setq pattern sym))
+    (unless pattern
+      (user-error "検索語が空です"))
+
+    ;; ★ ripgrep を root で確実に実行
+    (compilation-start
+     (format "rg -n --no-heading --color never --glob \"*\" -- %s \"%s\""
+             (shell-quote-argument pattern)
+             root)
+     'grep-mode
+     (lambda (_) "*ripgrep*"))))
+
+(define-key my-override-map (kbd "M-s") #'my-ripgrep-search)
+(define-key my-override-map (kbd "C-c p") #'my-ripgrep-search)
 
 ;; C-c f（project-find-file）
 (define-key my-override-map (kbd "C-c f")
-  (lambda ()
-    (interactive)
-    (call-interactively #'project-find-file)))
+  (lambda () (interactive) (call-interactively #'project-find-file)))
 
 (add-to-list 'emulation-mode-map-alists
              `((my-override-mode . ,my-override-map)))
@@ -197,7 +238,7 @@
 (my-override-mode 1)
 
 ;;; ------------------------------------------------------------
-;;; ★ GTAGS の完全自動化（昔の対話式方式 + incremental）
+;;; ★ GTAGS の完全自動化（対話式 + incremental）
 ;;; ------------------------------------------------------------
 
 (defun my-update-gtags ()
@@ -207,15 +248,10 @@
     (let* ((root (project-root (project-current)))
            (gtags (expand-file-name "GTAGS" root)))
       (cond
-       ;; GTAGS が無い → 対話式生成
        ((not (file-exists-p gtags))
         (call-interactively #'ggtags-create-tags))
-
-       ;; GTAGS が壊れている（0 バイトなど）→ 対話式生成
        ((= (nth 7 (file-attributes gtags)) 0)
         (call-interactively #'ggtags-create-tags))
-
-       ;; 正常 → incremental 更新
        (t
         (start-process "gtags-update" nil "gtags" "--incremental"))))))
 
@@ -259,7 +295,9 @@
 
 (when (eq system-type 'windows-nt)
   (add-hook 'minibuffer-setup-hook
-            (lambda () (deactivate-input-method))))
+            (lambda ()
+              (deactivate-input-method)
+              (set-input-method nil))))
 
 (provide 'init)
 ;;; init.el ends here

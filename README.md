@@ -31,6 +31,9 @@ https://www.msys2.org/
 ```sh
 pacman -Syu
 pacman -S mingw-w64-ucrt-x86_64-clangd
+pacman -S mingw-w64-ucrt-x86_64-ripgrep
 pacman -S mingw-w64-ucrt-x86_64-global
 pacman -S mingw-w64-ucrt-x86_64-universal-ctags
 pacman -S mingw-w64-ucrt-x86_64-python-pyright
+pacman -S mingw-w64-ucrt-x86_64-rust-analyzer
+```
