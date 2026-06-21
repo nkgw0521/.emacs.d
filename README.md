@@ -34,6 +34,8 @@ pacman -S mingw-w64-ucrt-x86_64-clang
 pacman -S mingw-w64-ucrt-x86_64-ripgrep
 pacman -S mingw-w64-ucrt-x86_64-global
 pacman -S mingw-w64-ucrt-x86_64-universal-ctags
-pacman -S mingw-w64-ucrt-x86_64-python-pyright
+(pacman -Rns mingw-w64-ucrt-x86_64-nodejs)
+pacman -S mingw-w64-ucrt-x86_64-nodejs
+npm install -g pyright
 pacman -S mingw-w64-ucrt-x86_64-rust-analyzer
 ```
