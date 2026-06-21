@@ -277,5 +277,75 @@
               (deactivate-input-method)
               (set-input-method nil))))
 
+;;; ------------------------------------------------------------
+;;; 補完強化：Corfu + Cape + Eglot + Gtags
+;;; ------------------------------------------------------------
+
+;; Corfu（補完 UI）
+(use-package corfu
+  :ensure t
+  :init
+  (global-corfu-mode)
+  :config
+  (setq corfu-auto t          ;; 自動補完
+        corfu-auto-delay 0.1
+        corfu-auto-prefix 1
+        corfu-cycle t))
+
+;; Cape（補完ソース）
+(use-package cape
+  :ensure t
+  :init
+  ;; M-/ で dabbrev 補完
+  (global-set-key (kbd "M-/") #'cape-dabbrev)
+  ;; M-<tab> でファイル名補完
+  (global-set-key (kbd "M-<tab>") #'cape-file))
+
+;; Eglot と Corfu の統合
+(setq completion-category-defaults nil)
+(setq completion-cycle-threshold 3)
+
+;; gtags 補完（Cape 経由）
+(defun cape-gtags ()
+  (interactive)
+  (cape-wrap-nonexclusive #'ggtags-complete-tag))
+
+(add-hook 'prog-mode-hook
+          (lambda ()
+            (add-to-list 'completion-at-point-functions #'cape-gtags)))
+
+;;; ------------------------------------------------------------
+;;; ミニバッファ補完：Vertico + Orderless + Marginalia
+;;; ------------------------------------------------------------
+
+(use-package vertico
+  :ensure t
+  :init
+  (vertico-mode))
+
+(use-package orderless
+  :ensure t
+  :custom
+  (completion-styles '(orderless basic))
+  (completion-category-defaults nil)
+  (completion-category-overrides '((file (styles basic partial-completion)))))
+
+(use-package marginalia
+  :ensure t
+  :init
+  (marginalia-mode))
+
 (provide 'init)
 ;;; init.el ends here
+(custom-set-variables
+ ;; custom-set-variables was added by Custom.
+ ;; If you edit it by hand, you could mess it up, so be careful.
+ ;; Your init file should contain only one such instance.
+ ;; If there is more than one, they won't work right.
+ '(package-selected-packages nil))
+(custom-set-faces
+ ;; custom-set-faces was added by Custom.
+ ;; If you edit it by hand, you could mess it up, so be careful.
+ ;; Your init file should contain only one such instance.
+ ;; If there is more than one, they won't work right.
+ )
