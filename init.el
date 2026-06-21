@@ -20,23 +20,28 @@
         ("melpa" . "https://melpa.org/packages/")))
 (package-initialize)
 
+;; use-package が無ければインストール
+(unless (package-installed-p 'use-package)
+  (package-refresh-contents)
+  (package-install 'use-package))
+(require 'use-package)
+(setq use-package-always-ensure t)
+
 ;;; ------------------------------------------------------------
-;;; 必要パッケージの自動インストール
+;;; color-moccur（インストール済み前提）
 ;;; ------------------------------------------------------------
 
-(defvar my-required-packages '(ggtags color-moccur))
+(use-package color-moccur
+  :ensure t
+  :config
+  (setq moccur-split-word t))
 
-(defun my-install-missing-packages ()
-  (dolist (pkg my-required-packages)
-    (unless (package-installed-p pkg)
-      (package-refresh-contents)
-      (package-install pkg))))
-(my-install-missing-packages)
+;;; ------------------------------------------------------------
+;;; ggtags
+;;; ------------------------------------------------------------
 
-(require 'ggtags)
-
-(require 'color-moccur)
-(setq moccur-split-word t)
+(use-package ggtags
+  :ensure t)
 
 ;;; ------------------------------------------------------------
 ;;; PATH（MSYS2 UCRT64 の LSP サーバーを Emacs に認識させる）
@@ -287,7 +292,7 @@
   :init
   (global-corfu-mode)
   :config
-  (setq corfu-auto t          ;; 自動補完
+  (setq corfu-auto t
         corfu-auto-delay 0.1
         corfu-auto-prefix 1
         corfu-cycle t))
