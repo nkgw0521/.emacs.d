@@ -10,14 +10,49 @@
 (set-language-environment "UTF-8")
 (prefer-coding-system 'utf-8)
 
+(require 'cl-lib)
+(require 'subr-x)
+
+;;; ------------------------------------------------------------
+;;; Windows / MSYS2 / GnuPG
+;;; ------------------------------------------------------------
+
+(defun my-add-to-path (dir)
+  "Add DIR to `exec-path' and PATH if it exists.
+Append to PATH on Windows so MSYS2 tools do not override native tools such as GnuPG."
+  (when (file-directory-p dir)
+    (add-to-list 'exec-path dir t)
+    (let ((path (getenv "PATH")))
+      (unless (and path (string-match-p (regexp-quote dir) path))
+        (setenv "PATH"
+                (if (eq system-type 'windows-nt)
+                    (concat path ";" dir)
+                  (concat path ":" dir)))))))
+
+(when (eq system-type 'windows-nt)
+  ;; Prefer Gpg4win's native gpg.exe for ELPA signature checks.
+  ;; MSYS2 gpg can mis-handle Windows paths such as c:/Users/...
+  (let ((gpg4win "C:/Program Files (x86)/GnuPG/bin/gpg.exe")
+        (gpg4win64 "C:/Program Files/GnuPG/bin/gpg.exe"))
+    (cond
+     ((file-exists-p gpg4win)   (setq epg-gpg-program gpg4win))
+     ((file-exists-p gpg4win64) (setq epg-gpg-program gpg4win64))))
+  (setq package-gnupghome-dir
+        (expand-file-name "elpa/gnupg" user-emacs-directory)))
+
 ;;; ------------------------------------------------------------
 ;;; パッケージ管理
 ;;; ------------------------------------------------------------
 
 (require 'package)
 (setq package-archives
-      '(("gnu"   . "https://elpa.gnu.org/packages/")
-        ("melpa" . "https://melpa.org/packages/")))
+      '(("gnu"    . "https://elpa.gnu.org/packages/")
+        ("nongnu" . "https://elpa.nongnu.org/nongnu/")
+        ("melpa"  . "https://melpa.org/packages/")))
+(setq package-archive-priorities
+      '(("gnu" . 100)
+        ("nongnu" . 90)
+        ("melpa" . 80)))
 (package-initialize)
 
 ;; use-package が無ければインストール
@@ -47,8 +82,9 @@
 ;;; PATH（MSYS2 UCRT64 の LSP サーバーを Emacs に認識させる）
 ;;; ------------------------------------------------------------
 
-(add-to-list 'exec-path "C:/msys64/ucrt64/bin")
-(setenv "PATH" (concat "C:/msys64/ucrt64/bin;" (getenv "PATH")))
+(dolist (dir '("C:/msys64/ucrt64/bin"
+               "C:/msys2-x86_64-20250830/ucrt64/bin"))
+  (my-add-to-path dir))
 
 ;;; ------------------------------------------------------------
 ;;; キーバインド
@@ -101,9 +137,10 @@
       next-screen-context-lines 1)
 
 (when (display-graphic-p)
-  (set-face-attribute 'default nil :family "Cica" :height 110)
-  (set-face-attribute 'fixed-pitch nil :family "Cica" :height 110)
-  (set-face-attribute 'variable-pitch nil :family "Cica" :height 110))
+  (when (member "Cica" (font-family-list))
+    (set-face-attribute 'default nil :family "Cica" :height 110)
+    (set-face-attribute 'fixed-pitch nil :family "Cica" :height 110)
+    (set-face-attribute 'variable-pitch nil :family "Cica" :height 110)))
 
 (global-hl-line-mode 1)
 (load-theme 'wombat t)
@@ -112,9 +149,12 @@
 ;;; whitespace
 ;;; ------------------------------------------------------------
 
-(require 'whitespace)
-(setq whitespace-style '(face trailing tabs))
-(global-whitespace-mode 1)
+(use-package whitespace
+  :ensure nil
+  :custom
+  (whitespace-style '(face trailing tabs))
+  :config
+  (global-whitespace-mode 1))
 
 ;;; ------------------------------------------------------------
 ;;; タブ設定
@@ -139,6 +179,8 @@
 ;;; project.el の誤認防止
 ;;; ------------------------------------------------------------
 
+(require 'project)
+
 (defun my-project-try-root (dir)
   (let ((root (locate-dominating-file dir "Makefile")))
     (when root
@@ -152,8 +194,9 @@
 ;;; ------------------------------------------------------------
 
 (require 'xref)
-(require 'project)
-(add-to-list 'xref-backend-functions #'xref-gtags-backend)
+(with-eval-after-load 'ggtags
+  (when (boundp 'xref-backend-functions)
+    (add-to-list 'xref-backend-functions #'xref-gtags-backend)))
 
 ;;; ------------------------------------------------------------
 ;;; symbol を確実に取得
@@ -178,9 +221,11 @@
   (lambda ()
     (interactive)
     (or
-     (ignore-errors (call-interactively #'ggtags-find-tag-dwim))
+     (when (fboundp 'ggtags-find-tag-dwim)
+       (ignore-errors (call-interactively #'ggtags-find-tag-dwim)))
      (ignore-errors (call-interactively #'xref-find-definitions))
-     (ignore-errors (call-interactively #'eglot-find-declaration))
+     (when (fboundp 'eglot-find-declaration)
+       (ignore-errors (call-interactively #'eglot-find-declaration)))
      (message "定義が見つかりませんでした"))))
 
 (define-key my-override-map (kbd "M-t")
@@ -205,9 +250,9 @@
     (unless pattern
       (user-error "検索語が空です"))
     (compilation-start
-     (format "rg -n --no-heading --color never --glob \"*\" -- %s \"%s\""
+     (format "rg -n --no-heading --color never --glob \"*\" -- %s %s"
              (shell-quote-argument pattern)
-             root)
+             (shell-quote-argument root))
      'grep-mode
      (lambda (_) "*ripgrep*"))))
 
@@ -232,7 +277,8 @@
 
 (defun my-update-gtags ()
   (when (and (project-current)
-             (executable-find "global"))
+             (executable-find "global")
+             (fboundp 'ggtags-create-tags))
     (let* ((root (project-root (project-current)))
            (gtags (expand-file-name "GTAGS" root)))
       (cond
@@ -248,29 +294,27 @@
 ;;; Eglot（LSP）
 ;;; ------------------------------------------------------------
 
-(require 'eglot)
+(use-package eglot
+  :ensure nil
+  :hook ((c-mode c++-mode python-mode rust-mode js-mode typescript-mode perl-mode) . eglot-ensure)
+  :config
+  (add-to-list 'eglot-server-programs '(c-mode . ("clangd")))
+  (add-to-list 'eglot-server-programs '(c++-mode . ("clangd")))
+  (add-to-list 'eglot-server-programs '(python-mode . ("pyright-langserver" "--stdio")))
+  (add-to-list 'eglot-server-programs '(rust-mode . ("rust-analyzer")))
+  (add-to-list 'eglot-server-programs
+               '((js-mode js-ts-mode typescript-mode typescript-ts-mode)
+                 . ("typescript-language-server" "--stdio")))
+  (add-to-list 'eglot-server-programs
+               '((perl-mode cperl-mode)
+                 . ("perl-language-server"))))
 
-(dolist (hook '(c-mode-hook
-                c++-mode-hook
-                python-mode-hook
-                rust-mode-hook
-                js-mode-hook
-                typescript-mode-hook
-                perl-mode-hook))
-  (add-hook hook #'eglot-ensure))
-
-(add-to-list 'eglot-server-programs '(c-mode . ("clangd")))
-(add-to-list 'eglot-server-programs '(c++-mode . ("clangd")))
-(add-to-list 'eglot-server-programs '(python-mode . ("pyright-langserver" "--stdio")))
-(add-to-list 'eglot-server-programs '(rust-mode . ("rust-analyzer")))
-(add-to-list 'eglot-server-programs
-             '((js-mode js-ts-mode typescript-mode typescript-ts-mode)
-               . ("typescript-language-server" "--stdio")))
-(add-to-list 'eglot-server-programs
-             '((perl-mode cperl-mode)
-               . ("perl-language-server")))
-
-(add-hook 'before-save-hook #'eglot-format-buffer)
+(defun my-eglot-format-buffer-if-managed ()
+  "Format current buffer only when it is managed by Eglot."
+  (when (and (fboundp 'eglot-managed-p)
+             (eglot-managed-p))
+    (eglot-format-buffer)))
+(add-hook 'before-save-hook #'my-eglot-format-buffer-if-managed)
 
 ;;; ------------------------------------------------------------
 ;;; minibuffer で IME を切る（Windows）
@@ -289,35 +333,30 @@
 ;; Corfu（補完 UI）
 (use-package corfu
   :ensure t
+  :custom
+  (corfu-auto t)
+  (corfu-auto-delay 0.1)
+  (corfu-auto-prefix 1)
+  (corfu-cycle t)
   :init
-  (global-corfu-mode)
-  :config
-  (setq corfu-auto t
-        corfu-auto-delay 0.1
-        corfu-auto-prefix 1
-        corfu-cycle t))
+  (global-corfu-mode 1))
 
 ;; Cape（補完ソース）
 (use-package cape
   :ensure t
-  :init
-  ;; M-/ で dabbrev 補完
-  (global-set-key (kbd "M-/") #'cape-dabbrev)
-  ;; M-<tab> でファイル名補完
-  (global-set-key (kbd "M-<tab>") #'cape-file))
+  :bind (("M-/" . cape-dabbrev)
+         ("M-<tab>" . cape-file)))
 
 ;; Eglot と Corfu の統合
 (setq completion-category-defaults nil)
 (setq completion-cycle-threshold 3)
 
-;; gtags 補完（Cape 経由）
-(defun cape-gtags ()
-  (interactive)
-  (cape-wrap-nonexclusive #'ggtags-complete-tag))
-
-(add-hook 'prog-mode-hook
-          (lambda ()
-            (add-to-list 'completion-at-point-functions #'cape-gtags)))
+;; gtags 補完（ggtags が completion-at-point 関数を提供する環境のみ）
+(defun my-enable-gtags-capf ()
+  (when (fboundp 'ggtags-completion-at-point)
+    (add-hook 'completion-at-point-functions
+              #'ggtags-completion-at-point nil t)))
+(add-hook 'prog-mode-hook #'my-enable-gtags-capf)
 
 ;;; ------------------------------------------------------------
 ;;; ミニバッファ補完：Vertico + Orderless + Marginalia
@@ -326,7 +365,7 @@
 (use-package vertico
   :ensure t
   :init
-  (vertico-mode))
+  (vertico-mode 1))
 
 (use-package orderless
   :ensure t
@@ -338,19 +377,7 @@
 (use-package marginalia
   :ensure t
   :init
-  (marginalia-mode))
+  (marginalia-mode 1))
 
 (provide 'init)
 ;;; init.el ends here
-(custom-set-variables
- ;; custom-set-variables was added by Custom.
- ;; If you edit it by hand, you could mess it up, so be careful.
- ;; Your init file should contain only one such instance.
- ;; If there is more than one, they won't work right.
- '(package-selected-packages nil))
-(custom-set-faces
- ;; custom-set-faces was added by Custom.
- ;; If you edit it by hand, you could mess it up, so be careful.
- ;; Your init file should contain only one such instance.
- ;; If there is more than one, they won't work right.
- )
