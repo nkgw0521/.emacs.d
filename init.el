@@ -85,7 +85,26 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
 (use-package color-moccur
   :ensure t
   :config
-  (setq moccur-split-word t))
+  (setq moccur-split-word t
+        moccur-following-mode-toggle nil
+        moccur-grep-following-mode-toggle nil
+        moccur-view-other-window nil
+        moccur-view-other-window-nobuf nil))
+
+(defvar my-moccur-file-coding-system 'undecided-dos
+  "Coding system used when color-moccur reads files for grep results.")
+
+(defun my-moccur-search-files-with-coding (orig-fun &rest args)
+  "Decode Japanese files and preserve windows in color-moccur results."
+  (let ((coding-system-for-read my-moccur-file-coding-system))
+    (cl-letf (((symbol-function 'delete-other-windows) #'ignore))
+      (apply orig-fun args))))
+
+(with-eval-after-load 'color-moccur
+  (unless (advice-member-p #'my-moccur-search-files-with-coding
+                           'moccur-search-files)
+    (advice-add 'moccur-search-files
+                :around #'my-moccur-search-files-with-coding)))
 
 ;;; ------------------------------------------------------------
 ;;; ggtags
@@ -95,6 +114,16 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
   :ensure t
   :custom
   (ggtags-auto-jump-to-match nil))
+
+(defun my-ggtags-global-build-command-no-verbose (orig-fun &rest args)
+  "Remove Global's verbose flag to keep progress text out of results."
+  (string-replace " -v " " " (apply orig-fun args)))
+
+(with-eval-after-load 'ggtags
+  (unless (advice-member-p #'my-ggtags-global-build-command-no-verbose
+                           'ggtags-global-build-command)
+    (advice-add 'ggtags-global-build-command
+                :around #'my-ggtags-global-build-command-no-verbose)))
 
 ;;; ------------------------------------------------------------
 ;;; PATH（MSYS2 UCRT64 の LSP サーバーを Emacs に認識させる）
@@ -137,7 +166,7 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
     (or (derived-mode-p 'compilation-mode 'grep-mode)
         (memq major-mode '(ggtags-global-mode xref--xref-buffer-mode))
         (string-match-p
-         "\\`\\*\\(ripgrep\\|grep\\|ggtags\\|xref\\|compilation\\)"
+         "\\`\\*\\(ripgrep\\|grep\\|ggtags\\|xref\\|compilation\\|Moccur\\|ee-outline\\|Search\\)"
          (buffer-name)))))
 
 (defun my-source-window-p (window)
@@ -162,6 +191,42 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
       (cl-find-if #'my-source-window-p (window-list nil 'no-minibuf))
       (selected-window)))
 
+(defun my-switch-to-buffer-no-split (buffer-or-name &optional norecord force-same-window)
+  "Switch to BUFFER-OR-NAME in an existing reusable window."
+  (let* ((buffer (if (bufferp buffer-or-name)
+                     buffer-or-name
+                   (get-buffer-create buffer-or-name)))
+         (window (my-navigation-target-window buffer)))
+    (select-window window norecord)
+    (switch-to-buffer buffer norecord force-same-window)
+    window))
+
+(defun my-pop-to-buffer-no-split (buffer-or-name &optional _action norecord)
+  "Pop to BUFFER-OR-NAME without creating a new window."
+  (my-switch-to-buffer-no-split buffer-or-name norecord))
+
+(defun my-find-file-no-split (filename &optional wildcards)
+  "Visit FILENAME without creating a new window."
+  (let ((buffer (find-file-noselect filename nil nil wildcards)))
+    (my-switch-to-buffer-no-split buffer)))
+
+(defun my-moccur-goto-no-split (orig-fun &rest args)
+  "Display color-moccur jump targets without creating windows."
+  (cl-letf (((symbol-function 'switch-to-buffer-other-window)
+             #'my-switch-to-buffer-no-split)
+            ((symbol-function 'find-file-other-window)
+             #'my-find-file-no-split)
+            ((symbol-function 'pop-to-buffer)
+             #'my-pop-to-buffer-no-split)
+            ((symbol-function 'delete-other-windows)
+             #'ignore))
+    (apply orig-fun args)))
+
+(with-eval-after-load 'color-moccur
+  (dolist (fn '(moccur-grep-goto moccur-mode-goto-occurrence))
+    (unless (advice-member-p #'my-moccur-goto-no-split fn)
+      (advice-add fn :around #'my-moccur-goto-no-split))))
+
 (defun my-compilation-goto-locus-no-split (orig-fun msg mk end-mk)
   "Display compilation and ggtags jump targets without creating windows."
   (let ((original-pop-to-buffer (symbol-function 'pop-to-buffer)))
@@ -183,7 +248,7 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
               :around #'my-compilation-goto-locus-no-split))
 
 (add-to-list 'display-buffer-alist
-             '("\\`\\*\\(ripgrep\\|grep\\|ggtags-global\\|Ggtags Search History\\|xref\\|Occur\\)"
+             '("\\`\\*\\(ripgrep\\|grep\\|ggtags-global\\|Ggtags Search History\\|xref\\|Occur\\|Moccur\\|ee-outline\\|Search\\)"
                (display-buffer-same-window)))
 
 ;;; ------------------------------------------------------------
@@ -327,6 +392,7 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
 
 (setq-default tab-width 4)
 (setq-default indent-tabs-mode t)
+(setq tab-always-indent nil)
 (setq-default c-basic-offset 4)
 (setq-default c-ts-mode-indent-offset 4)
 (setq c-default-style
@@ -339,6 +405,14 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
   (setq-local indent-tabs-mode t))
 (add-hook 'prog-mode-hook #'my-tab-setup)
 (add-hook 'text-mode-hook #'my-tab-setup)
+
+(defun my-insert-literal-tab ()
+  "Insert a literal tab character."
+  (interactive)
+  (insert "\t"))
+
+(global-set-key (kbd "C-c TAB") #'my-insert-literal-tab)
+(global-set-key (kbd "C-c <tab>") #'my-insert-literal-tab)
 
 (defun my-c-mode-setup ()
   "Configure C/C++ indentation without electric brace reformatting."
