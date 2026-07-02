@@ -92,7 +92,9 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
 ;;; ------------------------------------------------------------
 
 (use-package ggtags
-  :ensure t)
+  :ensure t
+  :custom
+  (ggtags-auto-jump-to-match nil))
 
 ;;; ------------------------------------------------------------
 ;;; PATH（MSYS2 UCRT64 の LSP サーバーを Emacs に認識させる）
@@ -176,8 +178,13 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
       (funcall orig-fun msg mk end-mk))))
 
 (with-eval-after-load 'compile
+  (setq compilation-auto-jump-to-first-error nil)
   (advice-add 'compilation-goto-locus
               :around #'my-compilation-goto-locus-no-split))
+
+(add-to-list 'display-buffer-alist
+             '("\\`\\*\\(ripgrep\\|grep\\|ggtags-global\\|Ggtags Search History\\|xref\\|Occur\\)"
+               (display-buffer-same-window)))
 
 ;;; ------------------------------------------------------------
 ;;; isearch
@@ -205,6 +212,14 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
         delete-old-versions t
         kept-new-versions 3
         kept-old-versions 0))
+
+;;; ------------------------------------------------------------
+;;; 外部変更の自動反映
+;;; ------------------------------------------------------------
+
+(setq auto-revert-verbose nil
+      auto-revert-stop-on-user-input nil)
+(global-auto-revert-mode 1)
 
 ;;; ------------------------------------------------------------
 ;;; auto-insert（C/C++ テンプレート）
@@ -277,6 +292,13 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
 
 (global-hl-line-mode 1)
 (load-theme 'wombat t)
+(set-face-attribute 'hl-line nil
+                    :background "#303030"
+                    :extend t)
+(set-face-attribute 'region nil
+                    :background "#4f5b93"
+                    :foreground "#ffffff"
+                    :extend t)
 
 ;;; ------------------------------------------------------------
 ;;; whitespace
@@ -286,8 +308,18 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
   :ensure nil
   :custom
   (whitespace-style '(face trailing tabs))
+  (whitespace-action nil)
   :config
   (global-whitespace-mode 1))
+
+(defun my-disable-save-whitespace-cleanup ()
+  "Keep trailing spaces and tabs intact when saving."
+  (remove-hook 'before-save-hook #'delete-trailing-whitespace t)
+  (remove-hook 'before-save-hook #'whitespace-cleanup t))
+
+(add-hook 'prog-mode-hook #'my-disable-save-whitespace-cleanup)
+(add-hook 'text-mode-hook #'my-disable-save-whitespace-cleanup)
+(add-hook 'before-save-hook #'my-disable-save-whitespace-cleanup)
 
 ;;; ------------------------------------------------------------
 ;;; タブ設定
