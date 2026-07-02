@@ -123,6 +123,63 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
 (global-set-key (kbd "<M-return>") #'toggle-frame-fullscreen)
 
 ;;; ------------------------------------------------------------
+;;; ジャンプ先表示（検索結果からの自動分割を抑制）
+;;; ------------------------------------------------------------
+
+(defvar my-last-source-window nil
+  "Last selected non-result window used as a jump target.")
+
+(defun my-result-buffer-p (&optional buffer)
+  "Return non-nil when BUFFER is a search/result buffer."
+  (with-current-buffer (or buffer (current-buffer))
+    (or (derived-mode-p 'compilation-mode 'grep-mode)
+        (memq major-mode '(ggtags-global-mode xref--xref-buffer-mode))
+        (string-match-p
+         "\\`\\*\\(ripgrep\\|grep\\|ggtags\\|xref\\|compilation\\)"
+         (buffer-name)))))
+
+(defun my-source-window-p (window)
+  "Return non-nil when WINDOW can be reused for source navigation."
+  (and (window-live-p window)
+       (not (window-minibuffer-p window))
+       (not (window-dedicated-p window))
+       (not (my-result-buffer-p (window-buffer window)))))
+
+(defun my-record-source-window ()
+  "Remember the last selected window that is suitable for source buffers."
+  (when (my-source-window-p (selected-window))
+    (setq my-last-source-window (selected-window))))
+
+(add-hook 'post-command-hook #'my-record-source-window)
+
+(defun my-navigation-target-window (buffer)
+  "Return an existing window to display BUFFER without splitting."
+  (or (get-buffer-window buffer 0)
+      (and (my-source-window-p my-last-source-window)
+           my-last-source-window)
+      (cl-find-if #'my-source-window-p (window-list nil 'no-minibuf))
+      (selected-window)))
+
+(defun my-compilation-goto-locus-no-split (orig-fun msg mk end-mk)
+  "Display compilation and ggtags jump targets without creating windows."
+  (let ((original-pop-to-buffer (symbol-function 'pop-to-buffer)))
+    (cl-letf (((symbol-function 'pop-to-buffer)
+               (lambda (buffer-or-name &optional action norecord)
+                 (if (eq action 'other-window)
+                     (let* ((buffer (get-buffer-create buffer-or-name))
+                            (window (my-navigation-target-window buffer)))
+                       (select-window window norecord)
+                       (switch-to-buffer buffer norecord)
+                       window)
+                   (funcall original-pop-to-buffer
+                            buffer-or-name action norecord)))))
+      (funcall orig-fun msg mk end-mk))))
+
+(with-eval-after-load 'compile
+  (advice-add 'compilation-goto-locus
+              :around #'my-compilation-goto-locus-no-split))
+
+;;; ------------------------------------------------------------
 ;;; isearch
 ;;; ------------------------------------------------------------
 
