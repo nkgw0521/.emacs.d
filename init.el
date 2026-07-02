@@ -13,6 +13,8 @@
 (require 'cl-lib)
 (require 'subr-x)
 
+(setq custom-file (expand-file-name "custom.el" user-emacs-directory))
+
 ;;; ------------------------------------------------------------
 ;;; Windows / MSYS2 / GnuPG
 ;;; ------------------------------------------------------------
@@ -55,10 +57,24 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
         ("melpa" . 80)))
 (package-initialize)
 
-;; use-package が無ければインストール
-(unless (package-installed-p 'use-package)
-  (package-refresh-contents)
-  (package-install 'use-package))
+(defvar my-core-packages
+  '(use-package compat color-moccur ggtags corfu cape vertico orderless marginalia)
+  "Packages installed automatically for this Emacs configuration.")
+
+(defun my-install-package-if-missing (pkg)
+  "Install PKG when it is not already available."
+  (unless (package-installed-p pkg)
+    (message "Installing package: %s" pkg)
+    (package-install pkg)))
+
+(defun my-ensure-core-packages ()
+  "Install packages required by this init.el."
+  (let ((missing (cl-remove-if #'package-installed-p my-core-packages)))
+    (when missing
+      (package-refresh-contents)
+      (mapc #'my-install-package-if-missing missing))))
+
+(my-ensure-core-packages)
 (require 'use-package)
 (setq use-package-always-ensure t)
 
@@ -102,8 +118,19 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
   (interactive)
   (revert-buffer :ignore-auto :noconfirm))
 (global-set-key (kbd "<f5>") #'revert-buffer-no-confirm)
+(global-set-key (kbd "<f6>") #'toggle-truncate-lines)
 
 (global-set-key (kbd "<M-return>") #'toggle-frame-fullscreen)
+
+;;; ------------------------------------------------------------
+;;; isearch
+;;; ------------------------------------------------------------
+
+(setq search-upper-case t)
+
+(with-eval-after-load 'isearch
+  (define-key isearch-mode-map (kbd "TAB") #'isearch-yank-symbol-or-char)
+  (define-key isearch-mode-map (kbd "<tab>") #'isearch-yank-symbol-or-char))
 
 ;;; ------------------------------------------------------------
 ;;; バックアップ・オートセーブ
@@ -121,6 +148,55 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
         delete-old-versions t
         kept-new-versions 3
         kept-old-versions 0))
+
+;;; ------------------------------------------------------------
+;;; auto-insert（C/C++ テンプレート）
+;;; ------------------------------------------------------------
+
+(require 'autoinsert)
+
+(setq auto-insert-directory
+      (expand-file-name "site-lisp/auto-insert/" user-emacs-directory))
+(setq auto-insert-query nil)
+
+(defun my-auto-insert--include-guard ()
+  "Return an include guard name for the current buffer file."
+  (let* ((file (file-name-nondirectory (or buffer-file-name "header.h")))
+         (guard (upcase (replace-regexp-in-string "[^[:alnum:]]+" "_" file))))
+    (string-trim guard "_" "_")))
+
+(defun my-auto-insert--replace-placeholder (placeholder replacement)
+  "Replace PLACEHOLDER with REPLACEMENT in the current buffer."
+  (save-excursion
+    (goto-char (point-min))
+    (while (search-forward placeholder nil t)
+      (replace-match replacement t t))))
+
+(defun my-auto-insert--template (template)
+  "Insert TEMPLATE from `auto-insert-directory' and expand placeholders."
+  (let ((template-file (expand-file-name template auto-insert-directory)))
+    (unless (file-readable-p template-file)
+      (user-error "Template file is not readable: %s" template-file))
+    (insert-file-contents template-file)
+    (my-auto-insert--replace-placeholder
+     "%file%" (file-name-nondirectory (or buffer-file-name "")))
+    (my-auto-insert--replace-placeholder
+     "%include-guard%" (my-auto-insert--include-guard))))
+
+(defun my-auto-insert-c-template ()
+  "Insert the C source template."
+  (my-auto-insert--template "template.c"))
+
+(defun my-auto-insert-h-template ()
+  "Insert the C header template."
+  (my-auto-insert--template "template.h"))
+
+(define-auto-insert '("\\.c\\'" . "C source template")
+  #'my-auto-insert-c-template)
+(define-auto-insert '("\\.h\\'" . "C header template")
+  #'my-auto-insert-h-template)
+
+(auto-insert-mode 1)
 
 ;;; ------------------------------------------------------------
 ;;; 表示（行番号・スクロール・フォント）
@@ -162,18 +238,43 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
 
 (setq-default tab-width 4)
 (setq-default indent-tabs-mode t)
+(setq-default c-basic-offset 4)
+(setq-default c-ts-mode-indent-offset 4)
+(setq c-default-style
+      '((java-mode . "java")
+        (awk-mode . "awk")
+        (other . "bsd")))
 
 (defun my-tab-setup ()
-  (setq tab-width 4)
-  (setq indent-tabs-mode t))
+  (setq-local tab-width 4)
+  (setq-local indent-tabs-mode t))
 (add-hook 'prog-mode-hook #'my-tab-setup)
 (add-hook 'text-mode-hook #'my-tab-setup)
 
-(add-hook 'c-mode-common-hook
-          (lambda ()
-            (setq c-basic-offset 4)
-            (setq tab-width 4)
-            (setq indent-tabs-mode t)))
+(defun my-c-mode-setup ()
+  "Configure C/C++ indentation without electric brace reformatting."
+  (c-set-style "bsd")
+  (setq-local c-basic-offset 4)
+  (setq-local tab-width 4)
+  (setq-local indent-tabs-mode t)
+  (setq-local electric-indent-inhibit t)
+  (setq-local c-auto-newline nil)
+  (setq-local c-electric-flag nil)
+  (local-set-key (kbd "RET") #'newline-and-indent))
+
+(add-hook 'c-mode-common-hook #'my-c-mode-setup)
+
+(defun my-c-ts-mode-setup ()
+  "Configure tree-sitter C/C++ indentation to use 4-column tabs."
+  (setq-local c-ts-mode-indent-offset 4)
+  (setq-local tab-width 4)
+  (setq-local indent-tabs-mode t)
+  (setq-local electric-indent-inhibit t)
+  (local-set-key (kbd "RET") #'newline-and-indent))
+
+(add-hook 'c-ts-base-mode-hook #'my-c-ts-mode-setup)
+(add-hook 'c-ts-mode-hook #'my-c-ts-mode-setup)
+(add-hook 'c++-ts-mode-hook #'my-c-ts-mode-setup)
 
 ;;; ------------------------------------------------------------
 ;;; project.el の誤認防止
@@ -298,6 +399,10 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
   :ensure nil
   :hook ((c-mode c++-mode python-mode rust-mode js-mode typescript-mode perl-mode) . eglot-ensure)
   :config
+  (setq eglot-ignored-server-capabilities
+        '(:documentFormattingProvider
+          :documentRangeFormattingProvider
+          :documentOnTypeFormattingProvider))
   (add-to-list 'eglot-server-programs '(c-mode . ("clangd")))
   (add-to-list 'eglot-server-programs '(c++-mode . ("clangd")))
   (add-to-list 'eglot-server-programs '(python-mode . ("pyright-langserver" "--stdio")))
@@ -308,13 +413,6 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
   (add-to-list 'eglot-server-programs
                '((perl-mode cperl-mode)
                  . ("perl-language-server"))))
-
-(defun my-eglot-format-buffer-if-managed ()
-  "Format current buffer only when it is managed by Eglot."
-  (when (and (fboundp 'eglot-managed-p)
-             (eglot-managed-p))
-    (eglot-format-buffer)))
-(add-hook 'before-save-hook #'my-eglot-format-buffer-if-managed)
 
 ;;; ------------------------------------------------------------
 ;;; minibuffer で IME を切る（Windows）
@@ -378,6 +476,9 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
   :ensure t
   :init
   (marginalia-mode 1))
+
+(when (file-exists-p custom-file)
+  (load custom-file))
 
 (provide 'init)
 ;;; init.el ends here

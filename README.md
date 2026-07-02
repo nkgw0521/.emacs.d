@@ -23,6 +23,11 @@ Windows + MSYS2 + GNU GLOBAL + Eglot + GTAGS IDE
 ## ■ Emacs 30
 公式ビルドまたは MSYS2 版を使用。
 
+この環境では `C:\msys2-x86_64-20250830\ucrt64\bin\runemacs.exe` を使用。
+
+Emacs Lisp パッケージは初回起動時に自動インストールされます。
+初回起動時はインターネット接続が必要です。
+
 ## ■ MSYS2（UCRT64）
 https://www.msys2.org/
 
