@@ -78,6 +78,28 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
 (require 'use-package)
 (setq use-package-always-ensure t)
 
+(defun my-require-elpa-source (feature package-prefix)
+  "Require FEATURE from the installed ELPA source for PACKAGE-PREFIX."
+  (let* ((pattern (expand-file-name
+                   (format "elpa/%s-*" package-prefix)
+                   user-emacs-directory))
+         (dirs (sort (file-expand-wildcards pattern) #'string<))
+         (dir (car (last dirs))))
+    (when dir
+      (add-to-list 'load-path dir)
+      (let ((load-suffixes '(".el")))
+        (require feature nil t)))))
+
+(dolist (package '((compat . "compat")
+                   (color-moccur . "color-moccur")
+                   (ggtags . "ggtags")
+                   (corfu . "corfu")
+                   (cape . "cape")
+                   (vertico . "vertico")
+                   (orderless . "orderless")
+                   (marginalia . "marginalia")))
+  (my-require-elpa-source (car package) (cdr package)))
+
 ;;; ------------------------------------------------------------
 ;;; color-moccur（インストール済み前提）
 ;;; ------------------------------------------------------------
@@ -438,6 +460,17 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
 (add-hook 'c-ts-base-mode-hook #'my-c-ts-mode-setup)
 (add-hook 'c-ts-mode-hook #'my-c-ts-mode-setup)
 (add-hook 'c++-ts-mode-hook #'my-c-ts-mode-setup)
+
+(defun my-python-mode-setup ()
+  "Configure Python indentation to use 4 spaces."
+  (setq-local tab-width 4)
+  (setq-local indent-tabs-mode nil)
+  (setq-local python-indent-offset 4)
+  (setq-local python-indent-guess-indent-offset nil)
+  (local-set-key (kbd "RET") #'newline-and-indent))
+
+(add-hook 'python-mode-hook #'my-python-mode-setup)
+(add-hook 'python-ts-mode-hook #'my-python-mode-setup)
 
 ;;; ------------------------------------------------------------
 ;;; project.el の誤認防止
