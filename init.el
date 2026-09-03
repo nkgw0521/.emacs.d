@@ -514,16 +514,33 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
 
 (defvar my-override-map (make-sparse-keymap))
 
+(defun my-try-call-interactively (command)
+  "Call COMMAND interactively and return non-nil when it succeeds."
+  (when (fboundp command)
+    (condition-case nil
+        (progn
+          (call-interactively command)
+          t)
+      (error nil))))
+
 (define-key my-override-map (kbd "C-o")
   (lambda ()
     (interactive)
     (or
-     (when (fboundp 'ggtags-find-tag-dwim)
-       (ignore-errors (call-interactively #'ggtags-find-tag-dwim)))
-     (ignore-errors (call-interactively #'xref-find-definitions))
-     (when (fboundp 'eglot-find-declaration)
-       (ignore-errors (call-interactively #'eglot-find-declaration)))
+     (my-try-call-interactively #'ggtags-find-tag-dwim)
+     (my-try-call-interactively #'xref-find-definitions)
+     (my-try-call-interactively #'eglot-find-declaration)
      (message "定義が見つかりませんでした"))))
+
+(defun my-go-back-from-definition ()
+  "Return to where the current definition search was started."
+  (interactive)
+  (if (and (bound-and-true-p ggtags-navigation-mode)
+           (fboundp 'ggtags-navigation-mode-abort))
+      (ggtags-navigation-mode-abort)
+    (xref-go-back)))
+
+(define-key my-override-map (kbd "M-,") #'my-go-back-from-definition)
 
 (define-key my-override-map (kbd "M-t")
   (lambda () (interactive) (call-interactively #'xref-find-definitions)))
