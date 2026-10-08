@@ -205,9 +205,34 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
 
 (add-hook 'post-command-hook #'my-record-source-window)
 
+(defvar-local my-definition-result-window nil
+  "Window used for both definition results and their selected source.")
+
+(defun my-display-definition-results (buffer alist)
+  "Display BUFFER in another existing window, or the current window."
+  (let* ((current (selected-window))
+         (window (or (cl-find-if
+                      (lambda (window)
+                        (and (not (eq window current))
+                             (not (window-dedicated-p window))))
+                      (window-list nil 'no-minibuf))
+                     current)))
+    (with-selected-window window
+      (display-buffer-same-window buffer alist))
+    (with-current-buffer buffer
+      (setq-local my-definition-result-window window)
+      (when (derived-mode-p 'xref--xref-buffer-mode)
+        (setq-local xref--original-window window)
+        (setq-local xref--original-window-intent nil)))
+    (select-window window)
+    window))
+
 (defun my-navigation-target-window (buffer)
   "Return an existing window to display BUFFER without splitting."
-  (or (get-buffer-window buffer 0)
+  (or (and (my-result-buffer-p)
+           (window-live-p my-definition-result-window)
+           my-definition-result-window)
+      (get-buffer-window buffer 0)
       (and (my-source-window-p my-last-source-window)
            my-last-source-window)
       (cl-find-if #'my-source-window-p (window-list nil 'no-minibuf))
@@ -251,12 +276,16 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
 
 (defun my-compilation-goto-locus-no-split (orig-fun msg mk end-mk)
   "Display compilation and ggtags jump targets without creating windows."
-  (let ((original-pop-to-buffer (symbol-function 'pop-to-buffer)))
+  (let ((original-pop-to-buffer (symbol-function 'pop-to-buffer))
+        (result-window (buffer-local-value 'my-definition-result-window
+                                           (marker-buffer msg))))
     (cl-letf (((symbol-function 'pop-to-buffer)
                (lambda (buffer-or-name &optional action norecord)
                  (if (eq action 'other-window)
                      (let* ((buffer (get-buffer-create buffer-or-name))
-                            (window (my-navigation-target-window buffer)))
+                            (window (if (window-live-p result-window)
+                                        result-window
+                                      (my-navigation-target-window buffer))))
                        (select-window window norecord)
                        (switch-to-buffer buffer norecord)
                        window)
@@ -272,6 +301,10 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
 (add-to-list 'display-buffer-alist
              '("\\`\\*\\(ripgrep\\|grep\\|ggtags-global\\|Ggtags Search History\\|xref\\|Occur\\|Moccur\\|ee-outline\\|Search\\)"
                (display-buffer-same-window)))
+
+(add-to-list 'display-buffer-alist
+             '("\\`\\*\\(ggtags-global\\|xref\\)"
+               (my-display-definition-results)))
 
 ;;; ------------------------------------------------------------
 ;;; isearch
@@ -305,8 +338,12 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
 ;;; ------------------------------------------------------------
 
 (setq auto-revert-verbose nil
-      auto-revert-stop-on-user-input nil)
+      auto-revert-stop-on-user-input nil
+      auto-revert-interval 1
+      auto-revert-avoid-polling nil)
 (global-auto-revert-mode 1)
+;; Apply the interval immediately when reloading init.el as well.
+(auto-revert-set-timer)
 
 ;;; ------------------------------------------------------------
 ;;; auto-insert（C/C++ テンプレート）
@@ -423,8 +460,12 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
         (other . "bsd")))
 
 (defun my-tab-setup ()
+  "Configure literal TAB insertion in the current buffer."
+  (interactive)
   (setq-local tab-width 4)
-  (setq-local indent-tabs-mode t))
+  (setq-local indent-tabs-mode t)
+  (local-set-key (kbd "TAB") #'my-insert-literal-tab)
+  (local-set-key (kbd "<tab>") #'my-insert-literal-tab))
 (add-hook 'prog-mode-hook #'my-tab-setup)
 (add-hook 'text-mode-hook #'my-tab-setup)
 
@@ -590,18 +631,20 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
 ;;; ------------------------------------------------------------
 
 (defun my-update-gtags ()
-  (when (and (project-current)
-             (executable-find "global")
-             (fboundp 'ggtags-create-tags))
-    (let* ((root (project-root (project-current)))
-           (gtags (expand-file-name "GTAGS" root)))
-      (cond
-       ((not (file-exists-p gtags))
-        (call-interactively #'ggtags-create-tags))
-       ((= (nth 7 (file-attributes gtags)) 0)
-        (call-interactively #'ggtags-create-tags))
-       (t
-        (start-process "gtags-update" nil "global" "--incremental"))))))
+  "Update existing ancestor GTAGS on save without creating tag files."
+  (let ((root (locate-dominating-file default-directory "GTAGS")))
+    (when (and root
+               (executable-find "global")
+               (file-regular-p (expand-file-name "GTAGS" root))
+               (> (file-attribute-size
+                   (file-attributes (expand-file-name "GTAGS" root))) 0))
+      (let* ((default-directory (file-name-as-directory root))
+             (process-environment (append ggtags-process-environment
+                                          (copy-sequence process-environment))))
+        ;; Discover the existing database from ROOT, not inherited overrides.
+        (setenv "GTAGSROOT" nil)
+        (setenv "GTAGSDBPATH" nil)
+        (start-process "gtags-update" nil "global" "--update")))))
 (add-hook 'after-save-hook #'my-update-gtags)
 
 ;;; ------------------------------------------------------------
@@ -650,7 +693,11 @@ Append to PATH on Windows so MSYS2 tools do not override native tools such as Gn
   (corfu-auto-prefix 1)
   (corfu-cycle t)
   :init
-  (global-corfu-mode 1))
+  (global-corfu-mode 1)
+  :config
+  ;; Let TAB reach the buffer's insertion binding even during completion.
+  (define-key corfu-map (kbd "TAB") nil)
+  (define-key corfu-map (kbd "<tab>") nil))
 
 ;; Cape（補完ソース）
 (use-package cape
